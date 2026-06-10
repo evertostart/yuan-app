@@ -9,13 +9,26 @@
   ];
 
   const STORAGE_KEY = "yuan-reflections";
+  const PATTERNS_CACHE_KEY = "yuan-patterns-cache";
   const API_KEY_STORAGE = "yuan-api-key";
+  const TRIAL_START_KEY = "yuan_trial_start";
+  const PREMIUM_KEY = "yuan_premium";
+  const PATTERNS_MIN_SESSIONS = 7;
+  const TRIAL_DAYS = 30;
+  const PATTERNS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const FREE_API_DELAY_MS = 450;
   const API_URL = "https://api.deepseek.com/chat/completions";
   const MODEL = "deepseek-chat";
 
-  const SYSTEM_PROMPT = `You are 元 (Yuan), a gentle evening reflection companion. The user is doing a quiet end-of-day practice.
+  const RECENT_SESSION_COUNT = 7;
 
-Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep your reply concise — 2 to 4 sentences. Acknowledge what they shared without fixing, lecturing, or diagnosing. Use plain, human language. You may be quietly poetic but never grandiose. Do not ask questions unless one soft invitation feels natural. Do not use bullet points or headers.`;
+  const RESPONSE_GUIDELINES = `You are 元 (Yuan). Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep your reply concise — 2 to 4 sentences. Acknowledge what they shared without fixing, lecturing, or diagnosing. Use plain, human language. You may be quietly poetic but never grandiose. Do not ask questions unless one soft invitation feels natural. Do not use bullet points or headers.`;
+
+  const SUMMARY_PROMPT = `You are 元 (Yuan). The user has finished a four-question evening reflection. Read the full session and write a brief, warm summary in 1 to 2 sentences. Capture the emotional thread of the evening without judging or advising. Use plain language. No bullet points or headers.`;
+
+  const PATTERNS_PROMPT = `You are 元 (Yuan). Based on these reflections, identify 3 genuine patterns in this person's life — their energy rhythms, recurring struggles, moments of joy, and progress over time. Write it warmly, like a friend who has been paying close attention.
+
+Format your response as exactly 3 numbered paragraphs. Each paragraph must start with "1.", "2.", or "3." followed by the pattern. One pattern per paragraph. No titles, bullet points, or extra commentary.`;
 
   const $ = (id) => document.getElementById(id);
 
@@ -38,9 +51,14 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     responsePanel: $("response-panel"),
     responseText: $("response-text"),
     btnNext: $("btn-next"),
+    patternsSection: $("patterns-section"),
+    patternsLoading: $("patterns-loading"),
+    patternsContent: $("patterns-content"),
+    patternsError: $("patterns-error"),
     historyList: $("history-list"),
     historyEmpty: $("history-empty"),
     sessionDate: $("session-date"),
+    sessionSummary: $("session-summary"),
     sessionEntries: $("session-entries"),
     apiKeyInput: $("api-key"),
     settingsSaved: $("settings-saved"),
@@ -50,6 +68,8 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
   let currentStep = 0;
   let currentSession = null;
   let viewingSessionId = null;
+  let lastSavedSessionId = null;
+  let patternsFetchPromise = null;
 
   function getApiKey() {
     return localStorage.getItem(API_KEY_STORAGE) || "";
@@ -82,6 +102,14 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     });
   }
 
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
   function formatDateShort(iso) {
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, {
@@ -89,6 +117,179 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
       day: "numeric",
       year: "numeric",
     });
+  }
+
+  function formatDateTime(iso) {
+    return `${formatDate(iso)} · ${formatTime(iso)}`;
+  }
+
+  function sortSessionsChronologically(sessions) {
+    return [...sessions].sort(
+      (a, b) => new Date(a.completedAt || a.createdAt) - new Date(b.completedAt || b.createdAt)
+    );
+  }
+
+  function sessionPreviewText(session) {
+    if (session.summary) return session.summary;
+    const first = session.entries[0]?.answer?.trim();
+    if (first) return first.slice(0, 120);
+    return "Evening reflection";
+  }
+
+  function getRecentSessions(count = RECENT_SESSION_COUNT) {
+    const sessions = sortSessionsChronologically(loadSessions());
+    return sessions.slice(-count);
+  }
+
+  function formatSessionForContext(session) {
+    const when = formatDateTime(session.completedAt || session.createdAt);
+    const parts = [`[${when}]`];
+
+    if (session.summary) {
+      parts.push(`Summary: ${session.summary}`);
+    }
+
+    session.entries.forEach((entry, index) => {
+      parts.push(`Q${index + 1}: ${entry.question}`);
+      parts.push(`Answer: ${entry.answer}`);
+      if (entry.response) {
+        parts.push(`元: ${entry.response}`);
+      }
+    });
+
+    return parts.join("\n");
+  }
+
+  function getPatternsFingerprint(sessions) {
+    if (sessions.length === 0) return "";
+    const last = sessions[sessions.length - 1];
+    return `${sessions.length}:${last.id}:${last.completedAt || last.createdAt}`;
+  }
+
+  function loadPatternsCache() {
+    try {
+      const raw = localStorage.getItem(PATTERNS_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function savePatternsCache(cache) {
+    localStorage.setItem(PATTERNS_CACHE_KEY, JSON.stringify(cache));
+  }
+
+  function formatAllSessionsForPatterns(sessions) {
+    return sessions.map(formatSessionForContext).join("\n\n---\n\n");
+  }
+
+  function parsePatterns(text) {
+    const items = text
+      .split(/\n(?=[1-3]\.\s)/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (items.length >= 2) {
+      return items.map((item) => item.replace(/^[1-3]\.\s*/, ""));
+    }
+
+    return [text.trim()];
+  }
+
+  function setPatternsLoading(loading) {
+    els.patternsLoading.hidden = !loading;
+    if (loading) {
+      els.patternsContent.hidden = true;
+      els.patternsError.hidden = true;
+    }
+  }
+
+  function displayPatterns(text) {
+    const items = parsePatterns(text);
+    els.patternsContent.innerHTML = items
+      .map(
+        (item, index) => `
+          <div class="patterns-item">
+            <span class="patterns-item__number">${index + 1}</span>
+            <p class="patterns-item__text">${escapeHtml(item)}</p>
+          </div>
+        `
+      )
+      .join("");
+
+    els.patternsError.hidden = true;
+    els.patternsLoading.hidden = true;
+    els.patternsContent.hidden = false;
+  }
+
+  function showPatternsError(message) {
+    els.patternsError.textContent = message;
+    els.patternsError.hidden = false;
+    els.patternsLoading.hidden = true;
+    els.patternsContent.hidden = true;
+  }
+
+  async function fetchPatterns(sessions) {
+    if (!getApiKey()) {
+      throw new Error("Add your DeepSeek API key in Settings to see patterns.");
+    }
+
+    const transcript = formatAllSessionsForPatterns(sessions);
+    return callDeepSeek(
+      [
+        { role: "system", content: PATTERNS_PROMPT },
+        { role: "user", content: transcript },
+      ],
+      550
+    );
+  }
+
+  async function renderPatterns(sessions) {
+    if (sessions.length < PATTERNS_MIN_SESSIONS) {
+      els.patternsSection.hidden = true;
+      return;
+    }
+
+    els.patternsSection.hidden = false;
+    const fingerprint = getPatternsFingerprint(sessions);
+    const cached = loadPatternsCache();
+
+    if (cached?.fingerprint === fingerprint && cached.content) {
+      displayPatterns(cached.content);
+      return;
+    }
+
+    if (!patternsFetchPromise) {
+      setPatternsLoading(true);
+      patternsFetchPromise = fetchPatterns(sessions)
+        .then((content) => {
+          savePatternsCache({ fingerprint, content });
+          displayPatterns(content);
+        })
+        .catch((err) => {
+          showPatternsError(err.message);
+        })
+        .finally(() => {
+          patternsFetchPromise = null;
+        });
+    }
+
+    await patternsFetchPromise;
+  }
+
+  function buildReflectionSystemPrompt(recentSessions) {
+    const historyBlock =
+      recentSessions.length > 0
+        ? recentSessions.map(formatSessionForContext).join("\n\n")
+        : "(No prior sessions yet — this may be your first evening together.)";
+
+    return `You are a compassionate evening reflection companion. You have been with this user for some time. Here are their recent reflections:
+
+${historyBlock}
+
+Use this history to notice patterns, reference past moments when relevant, and make the user feel genuinely known — not just heard tonight, but remembered over time. Never be generic. Always be personal.
+
+${RESPONSE_GUIDELINES}`;
   }
 
   function showView(name) {
@@ -126,10 +327,12 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     }
 
     currentStep = 0;
+    const recentSessions = getRecentSessions();
     currentSession = {
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
       entries: [],
+      systemPrompt: buildReflectionSystemPrompt(recentSessions),
     };
 
     resetReflectionUI();
@@ -138,13 +341,11 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     els.answerInput.focus();
   }
 
-  async function callDeepSeek(question, answer) {
+  async function callDeepSeek(messages, maxTokens = 300) {
     const apiKey = getApiKey();
     if (!apiKey) {
       throw new Error("No API key configured.");
     }
-
-    const userMessage = `Evening reflection question: "${question}"\n\nUser's answer:\n${answer}`;
 
     const res = await fetch(API_URL, {
       method: "POST",
@@ -154,12 +355,9 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
       },
       body: JSON.stringify({
         model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
+        messages,
         temperature: 0.8,
-        max_tokens: 300,
+        max_tokens: maxTokens,
       }),
     });
 
@@ -183,6 +381,47 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     return content.trim();
   }
 
+  async function respondToAnswer(question, answer) {
+    const userMessage = `Evening reflection question: "${question}"\n\nUser's answer:\n${answer}`;
+    const systemPrompt =
+      currentSession?.systemPrompt || buildReflectionSystemPrompt([]);
+    return callDeepSeek([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ]);
+  }
+
+  async function generateSessionSummary(session) {
+    const transcript = session.entries
+      .map(
+        (entry, index) =>
+          `Question ${index + 1}: ${entry.question}\nUser: ${entry.answer}\n元: ${entry.response}`
+      )
+      .join("\n\n");
+
+    try {
+      return await callDeepSeek(
+        [
+          { role: "system", content: SUMMARY_PROMPT },
+          { role: "user", content: transcript },
+        ],
+        150
+      );
+    } catch {
+      const snippet = session.entries
+        .map((e) => e.answer.trim())
+        .filter(Boolean)
+        .join(" ")
+        .slice(0, 100);
+      return snippet ? `An evening of quiet reflection — ${snippet}…` : "An evening of quiet reflection.";
+    }
+  }
+
+  function setFinishing(finishing) {
+    els.btnNext.disabled = finishing;
+    els.btnNext.textContent = finishing ? "Saving tonight…" : els.btnNext.textContent;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -193,7 +432,7 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     setLoading(true);
 
     try {
-      const response = await callDeepSeek(question, answer);
+      const response = await respondToAnswer(question, answer);
 
       currentSession.entries.push({
         question,
@@ -214,16 +453,37 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     }
   }
 
-  function handleNext() {
+  async function handleNext() {
     const isLast = currentStep === QUESTIONS.length - 1;
 
     if (isLast) {
-      const sessions = loadSessions();
-      sessions.unshift(currentSession);
-      saveSessions(sessions);
-      currentSession = null;
-      renderHistory();
-      showView("complete");
+      setFinishing(true);
+
+      try {
+        const completedAt = new Date().toISOString();
+        const summary = await generateSessionSummary(currentSession);
+
+        const { systemPrompt, ...sessionData } = currentSession;
+        const savedSession = {
+          ...sessionData,
+          completedAt,
+          summary,
+        };
+
+        const sessions = loadSessions();
+        sessions.push(savedSession);
+        saveSessions(sessions);
+
+        lastSavedSessionId = savedSession.id;
+        currentSession = null;
+        renderHistory();
+        showView("complete");
+      } catch (err) {
+        alert(`Could not save tonight's reflection.\n\n${err.message}`);
+      } finally {
+        setFinishing(false);
+        els.btnNext.textContent = "Finish reflection";
+      }
       return;
     }
 
@@ -234,7 +494,8 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
   }
 
   function renderHistory() {
-    const sessions = loadSessions();
+    const sessions = sortSessionsChronologically(loadSessions());
+    renderPatterns(sessions);
     els.historyList.innerHTML = "";
     els.historyEmpty.hidden = sessions.length > 0;
 
@@ -247,12 +508,12 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
       btn.className = "history-btn";
       btn.dataset.id = session.id;
 
-      const preview =
-        session.entries[0]?.answer?.slice(0, 80) || "Empty reflection";
+      const when = session.completedAt || session.createdAt;
 
       btn.innerHTML = `
-        <span class="history-date">${formatDateShort(session.createdAt)}</span>
-        <span class="history-preview">${escapeHtml(preview)}</span>
+        <span class="history-date">${formatDateShort(when)}</span>
+        <span class="history-time">${escapeHtml(formatTime(when))}</span>
+        <span class="history-preview">${escapeHtml(sessionPreviewText(session))}</span>
       `;
 
       btn.addEventListener("click", () => openSession(session.id));
@@ -273,7 +534,17 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     if (!session) return;
 
     viewingSessionId = id;
-    els.sessionDate.textContent = formatDate(session.createdAt);
+    const when = session.completedAt || session.createdAt;
+    els.sessionDate.textContent = formatDateTime(when);
+
+    if (session.summary) {
+      els.sessionSummary.textContent = session.summary;
+      els.sessionSummary.hidden = false;
+    } else {
+      els.sessionSummary.textContent = "";
+      els.sessionSummary.hidden = true;
+    }
+
     els.sessionEntries.innerHTML = "";
 
     session.entries.forEach((entry) => {
@@ -315,9 +586,13 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     $("btn-done").addEventListener("click", () => showView("home"));
 
     $("btn-view-session").addEventListener("click", () => {
-      const sessions = loadSessions();
+      if (lastSavedSessionId) {
+        openSession(lastSavedSessionId);
+        return;
+      }
+      const sessions = sortSessionsChronologically(loadSessions());
       if (sessions.length > 0) {
-        openSession(sessions[0].id);
+        openSession(sessions[sessions.length - 1].id);
       }
     });
 
@@ -331,8 +606,18 @@ Respond to their answer with warmth, thoughtfulness, and zero judgment. Keep you
     });
   }
 
+  function updateHomeScreen() {
+    const greetingEl = document.getElementById('hero-greeting');
+    const streakEl = document.getElementById('hero-streak');
+    if (greetingEl) greetingEl.textContent = getTimeGreeting();
+    const streak = getStreak();
+    if (streakEl) streakEl.textContent = streak > 0 
+      ? streak + ' evening' + (streak > 1 ? 's' : '') + ' in a row' 
+      : '';
+  }
   function init() {
     bindEvents();
+    updateHomeScreen();
     renderHistory();
 
     const savedKey = getApiKey();

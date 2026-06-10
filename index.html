@@ -13,6 +13,8 @@
 </head>
 <body>
   <div class="app" id="app">
+    <p class="trial-banner" id="trial-banner" hidden></p>
+
     <header class="header">
       <button type="button" class="logo-btn" id="btn-home" aria-label="Home">
         <span class="logo-char">元</span>
@@ -81,7 +83,27 @@
 
       <!-- History -->
       <section class="view" id="view-history">
-        <h2 class="section-title">Past reflections</h2>
+        <div class="patterns-section" id="patterns-section" hidden>
+          <h2 class="section-title section-title--patterns">Patterns</h2>
+          <p class="patterns-subtitle">What 元 has noticed across your evenings together.</p>
+          <article class="patterns-card" id="patterns-card" aria-live="polite">
+            <div class="patterns-card__glow" aria-hidden="true"></div>
+            <p class="patterns-card__label">元 · insight</p>
+            <div class="patterns-loading" id="patterns-loading">
+              <span class="patterns-loading__dot"></span>
+              <span class="patterns-loading__dot"></span>
+              <span class="patterns-loading__dot"></span>
+              <p>Reading your reflections…</p>
+            </div>
+            <div class="patterns-content" id="patterns-content" hidden></div>
+            <p class="patterns-error" id="patterns-error" hidden></p>
+          </article>
+        </div>
+
+        <div class="history-header">
+          <h2 class="section-title section-title--history">Past reflections</h2>
+          <button type="button" class="btn-export" id="btn-export-pdf" hidden>Export journal</button>
+        </div>
         <p class="section-empty" id="history-empty">No reflections yet. Your first evening awaits.</p>
         <ul class="history-list" id="history-list"></ul>
       </section>
@@ -90,7 +112,22 @@
       <section class="view" id="view-session">
         <button type="button" class="back-link" id="btn-back-history">← Back</button>
         <p class="session-date" id="session-date"></p>
+        <p class="session-summary" id="session-summary" hidden></p>
         <div class="session-entries" id="session-entries"></div>
+      </section>
+
+      <!-- Upgrade -->
+      <section class="view view--upgrade" id="view-upgrade">
+        <div class="upgrade-card">
+          <p class="upgrade-char">元</p>
+          <h2 class="upgrade-title">30 evenings. That's who you're becoming.</h2>
+          <p class="upgrade-body">You've spent 30 evenings coming back to yourself. That's not nothing — that's a practice. Keep going.</p>
+          <div class="upgrade-actions">
+            <button type="button" class="btn btn--primary" id="btn-upgrade-monthly">Continue my journey — $4.99/month</button>
+            <button type="button" class="btn btn--ghost" id="btn-upgrade-yearly">See yearly plan — $39.99/year (save 33%)</button>
+          </div>
+          <button type="button" class="upgrade-skip" id="btn-upgrade-history">Browse past reflections</button>
+        </div>
       </section>
 
       <!-- Settings -->
@@ -110,6 +147,13 @@
           <button type="submit" class="btn btn--primary">Save key</button>
         </form>
         <p class="settings-saved" id="settings-saved" hidden>Key saved.</p>
+        <button type="button" class="btn-test-premium" id="btn-test-premium">Activate Premium (Test)</button>
+
+        <div class="plan-card" id="plan-card">
+          <p class="plan-card__label">Your journey</p>
+          <p class="plan-card__status" id="plan-status"></p>
+          <p class="plan-card__hint" id="plan-hint"></p>
+        </div>
       </section>
     </main>
 
