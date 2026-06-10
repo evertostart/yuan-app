@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="元 — a gentle evening reflection practice">
+  <meta name="theme-color" content="#0f1419">
+  <title>元 · Yuan</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500&family=Source+Sans+3:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="header">
+      <button type="button" class="logo-btn" id="btn-home" aria-label="Home">
+        <span class="logo-char">元</span>
+        <span class="logo-sub">Yuan</span>
+      </button>
+      <nav class="nav">
+        <button type="button" class="nav-btn" id="btn-reflect" hidden>Reflect</button>
+        <button type="button" class="nav-btn" id="btn-history">History</button>
+        <button type="button" class="nav-btn" id="btn-settings" aria-label="Settings">⚙</button>
+      </nav>
+    </header>
+
+    <main class="main">
+      <!-- Home -->
+      <section class="view view--active" id="view-home">
+        <div class="hero">
+          <h1 class="hero-title">元</h1>
+          <p class="hero-tagline">An evening pause — four questions, one gentle moment with yourself.</p>
+          <button type="button" class="btn btn--primary" id="btn-start">Begin tonight's reflection</button>
+        </div>
+      </section>
+
+      <!-- Reflection -->
+      <section class="view" id="view-reflect">
+        <div class="progress" aria-hidden="true">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <p class="step-label" id="step-label">Question 1 of 4</p>
+        <h2 class="question" id="question-text"></h2>
+
+        <form class="answer-form" id="answer-form">
+          <label class="sr-only" for="answer-input">Your answer</label>
+          <textarea
+            id="answer-input"
+            class="answer-input"
+            rows="5"
+            placeholder="Take your time…"
+            autocomplete="off"
+            required
+          ></textarea>
+          <button type="submit" class="btn btn--primary" id="btn-submit">
+            <span class="btn-text">Continue</span>
+            <span class="btn-loading" hidden>Listening…</span>
+          </button>
+        </form>
+
+        <div class="response-panel" id="response-panel" hidden>
+          <p class="response-label">元</p>
+          <p class="response-text" id="response-text"></p>
+          <button type="button" class="btn btn--ghost" id="btn-next">Next question</button>
+        </div>
+      </section>
+
+      <!-- Complete -->
+      <section class="view" id="view-complete">
+        <div class="complete-card">
+          <p class="complete-char">元</p>
+          <h2 class="complete-title">Tonight is held</h2>
+          <p class="complete-body">Your reflection has been saved. Rest well.</p>
+          <div class="complete-actions">
+            <button type="button" class="btn btn--ghost" id="btn-view-session">Read tonight</button>
+            <button type="button" class="btn btn--primary" id="btn-done">Close</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section class="view" id="view-history">
+        <h2 class="section-title">Past reflections</h2>
+        <p class="section-empty" id="history-empty">No reflections yet. Your first evening awaits.</p>
+        <ul class="history-list" id="history-list"></ul>
+      </section>
+
+      <!-- Session detail -->
+      <section class="view" id="view-session">
+        <button type="button" class="back-link" id="btn-back-history">← Back</button>
+        <p class="session-date" id="session-date"></p>
+        <div class="session-entries" id="session-entries"></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" id="view-settings">
+        <h2 class="section-title">Settings</h2>
+        <form class="settings-form" id="settings-form">
+          <label class="field-label" for="api-key">DeepSeek API key</label>
+          <p class="field-hint">Stored only on this device. Never sent anywhere except DeepSeek.</p>
+          <input
+            type="password"
+            id="api-key"
+            class="field-input"
+            placeholder="sk-…"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button type="submit" class="btn btn--primary">Save key</button>
+        </form>
+        <p class="settings-saved" id="settings-saved" hidden>Key saved.</p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>One question at a time. No rush.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
